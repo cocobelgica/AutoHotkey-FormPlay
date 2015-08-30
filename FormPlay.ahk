@@ -64,9 +64,9 @@ class MainWindow extends GuiWnd
 		width := A_ScreenWidth*0.80, height := A_ScreenHeight*0.80
 
 		w := (width-15)*0.35, h := (height-20)//3
-		this.HTMLPane := new GEditCtl(hMain, "-Wrap +WantTab +HScroll t16 xm ym w" . w . " h" . h, "<!-- HTML Pane -->")
-		this.CSSPane  := new GEditCtl(hMain, "-Wrap +WantTab +HScroll t16 xp y+5 wp hp", "/* CSS Pane */")
-		this.JSPane   := new GEditCtl(hMain, "-Wrap +WantTab +HScroll t16 xp y+5 wp hp", "// JavScript Pane")
+		this.HTMLPane := new GEditCtl(hMain, "-Wrap +WantTab +HScroll t16 xm ym w" . w . " h" . h, "<!-- HTML Pane -->`n")
+		this.CSSPane  := new GEditCtl(hMain, "-Wrap +WantTab +HScroll t16 xp y+5 wp hp", "/* CSS Pane */`n")
+		this.JSPane   := new GEditCtl(hMain, "-Wrap +WantTab +HScroll t16 xp y+5 wp hp", "// JavaScript Pane`n")
 
 		w := (width-15)*0.65
 		this.View := new this.WebView(this, "x+5 y0 w" . w . " h" . height)
