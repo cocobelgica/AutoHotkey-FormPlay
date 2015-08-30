@@ -3,12 +3,11 @@ return
 Main()
 {
 	this := new MainWindow2()
-	this.Form.LoadDocument()
 	this.Show()
 	
 	hMain := this.Handle
 	WinWaitClose, ahk_id %hMain%
-
+	
 	ExitApp
 }
 
@@ -18,19 +17,17 @@ class MainWindow2 extends MainWindow
 	{
 		if enable
 		{
-			ToggleConsole := ObjBindMethod(this, "ToggleConsole")
-			FocusHTMLPane := ObjBindMethod(this.HTMLPane, "SetFocus")
-			FocusCSSPane  := ObjBindMethod(this.CSSPane, "SetFocus")
-			FocusJSPane   := ObjBindMethod(this.JSPane, "SetFocus")
-			LoadDocument  := ObjBindMethod(this.Form, "LoadDocument")
-			ToggleDock    := ObjBindMethod(this, "ToggleDock")
-			Help          := ObjBindMethod(this, "Help")
+			ToggleConsole := this.Commands.toggle_console
+			FocusHTMLPane := this.Commands.focus_htmlpane
+			FocusCSSPane  := this.Commands.focus_csspane
+			FocusJSPane   := this.Commands.focus_jspane
+			LoadDocument  := this.Commands.load_document
+			Help          := this.Commands.help
 
 			Menu, ViewMenu, Add, Show/Hide Console`tCtrl+``, %ToggleConsole%
 			Menu, ViewMenu, Add, Focus HTML Pane`tCtrl+1, %FocusHTMLPane%
 			Menu, ViewMenu, Add, Focus CSS Pane`tCtrl+2, %FocusCSSPane%
 			Menu, ViewMenu, Add, Focus JS Pane`tCtrl+3, %FocusJSPane%
-			Menu, ViewMenu, Add, Dock Form, %ToggleDock%
 			
 			Menu, ToolsMenu, Add, Run/Refresh`tF5, %LoadDocument%
 
@@ -50,45 +47,6 @@ class MainWindow2 extends MainWindow
 			Menu, MenuBar, Delete
 		}
 	}
-
-	ToggleDock()
-	{
-		VarSetCapacity(RECT, 16, 0)
-		DllCall("GetClientRect", "Ptr", this.Handle, "Ptr", &RECT)
-			w := NumGet(RECT, 0, "Int") + NumGet(RECT, 8, "Int")
-			h := NumGet(RECT, 4, "Int") + NumGet(RECT, 12, "Int")
-		
-		this.Canvas.Hide()
-		if (this.Form.WebView != this.Canvas)
-		{
-			WB := this.Form.WebView0 ? this.Form.WebView0 : new WebBrowserCtl(this.Handle, "x0 y0 w10 h100 Hidden")
-			this.Canvas0 := this.Canvas
-			this.Form.WebView0 := this.Form.WebView
-			this.Form.WebView := this.Canvas := WB
-
-			this.Canvas.Hide(0)
-			Menu, ViewMenu, Rename, Dock Form, Undock Form
-		}
-		else
-		{
-			WB := this.Form.WebView0
-			this.Canvas := ObjDelete(this, "Canvas0")
-			this.Form.WebView0 := this.Form.WebView
-			this.Form.WebView := WB
-
-			this.Canvas.Show()
-			Menu, ViewMenu, Rename, Undock Form, Dock Form
-		}
-
-		this.OnSize(0, w, h)
-		this.Show()
-
-		document := WB.Document
-		document.open()
-		document.write(this.Form.WebView0.Document.documentElement.outerHtml)
-		document.parentWindow.console.write := ObjBindMethod(this, "ConsoleWrite")
-		document.close()
-	}
 }
 
 class MainWindow extends GuiWnd
@@ -103,71 +61,44 @@ class MainWindow extends GuiWnd
 
 		hMain := this.Handle
 
-		this.DefaultBtn := new GButtonCtl(hMain, "x0 y0 w0 h0 Hidden Default")
-			this.DefaultBtn.Listener := ObjBindMethod(this, "ConsoleSubmit")
-		this.StatusBar := new GStatusBarCtl(hMain)
-			sbpos_H := this.StatusBar.Pos["H"]
-
-		
 		width := A_ScreenWidth*0.80, height := A_ScreenHeight*0.80
 
-		w := (width-15)*0.35, h := (height-sbpos_H-20)//3
-		this.StatusBar.SetParts(w)
+		w := (width-15)*0.35, h := (height-20)//3
 		this.HTMLPane := new GEditCtl(hMain, "-Wrap +WantTab +HScroll t16 xm ym w" . w . " h" . h, "<!-- HTML Pane -->")
 		this.CSSPane  := new GEditCtl(hMain, "-Wrap +WantTab +HScroll t16 xp y+5 wp hp", "/* CSS Pane */")
 		this.JSPane   := new GEditCtl(hMain, "-Wrap +WantTab +HScroll t16 xp y+5 wp hp", "// JavScript Pane")
 
-		
-		x := w+10
 		w := (width-15)*0.65
+		this.View := new this.WebView(this, "x+5 y0 w" . w . " h" . height)
+
+		this.Console := new this.JsConsole(
+		(LTrim Join, Q
+			this
+			new GEditCtl(hMain, "xp y+0 wp r7 -Wrap t16 +ReadOnly Hidden")
+			new GEditCtl(hMain, "xp y+5 wp r1 -Wrap t16 Hidden")
+		))
+			this.DefaultBtn := new GButtonCtl(hMain, "x0 y0 w0 h0 Hidden Default")
+			this.DefaultBtn.Listener := ObjBindMethod(this.Console, "Submit")
+
+		; for menus/hotkeys/glabels etc. esp. for sublcasses
+		this.Commands := { toggle_console: ObjBindMethod(this.Console, "ToggleShowHide")
+		                 , focus_htmlpane: ObjBindMethod(this.HTMLPane, "SetFocus")
+		                 , focus_csspane:  ObjBindMethod(this.CSSPane, "SetFocus")
+		                 , focus_jspane:   ObjBindMethod(this.JSPane, "SetFocus")
+		                 , load_document:  ObjBindMethod(this.View, "LoadDocument")
+		                 , help:           ObjBindMethod(this, "Help") }
 		
-		this.JsConsole := {}
-			this.JsConsole.IsVisible := false
-			this.JsConsole.Output := new GEditCtl(hMain, Format("x{1} yp w{2} r7 -Wrap t16 +ReadOnly Hidden", x, w))
-			this.JsConsole.Input  := new GEditCtl(hMain, "-Wrap t16 Hidden r1 xp y+5 wp")
-
-			this.JsConsole.Height := 15 ; margin*3
-			y := (h*3) + 15
-			pos_H := this.JsConsole.Input.Pos["H"]
-			y -= pos_H, this.JsConsole.Height += pos_H
-			this.JsConsole.Input.Move(, y)
-			pos_H := this.JsConsole.Output.Pos["H"]
-			y -= pos_H+5, this.JsConsole.Height += pos_H
-			this.JsConsole.Output.Move(, y)
-
 		
-		this.Canvas := new GuiChildWnd(hMain,, "-Caption +ToolWindow")
-			this.Canvas.BgColor := "858585"
-
-			width := (width-15)*0.65, height -= sbpos_H
-			this.Canvas.Show(Format("x{1} y0 w{2} h{3} Hide", x, width, height))
-
-		
-		w := width*0.85, h := height*0.85
-		this.Form := new this.HtmlForm(this, "FormPlay - WebView", w, h) ; use 'this' to allow overwriting when subclassing
-			this.Form.Show("Hide")
-
-		; Workaround - 'Center' option is not positioning the child window in the center of its parent
-		; Center it manually.
-		VarSetCapacity(RECT, 16, 0)
-		DllCall("GetWindowRect", "Ptr", this.Form.Handle, "Ptr", &RECT)
-		x := (width//2) - ((wd := NumGet(RECT, 8, "Int") - NumGet(RECT, 0, "Int"))//2)
-		y := (height//2) - ((ht := NumGet(RECT, 12, "Int") - NumGet(RECT, 4,"Int"))//2)
-		this.Form.Show("Hide x" . x . " y" . y)
+		this.AutoReload := new this.Timer(-10000, this.Commands.load_document)
+		OnEditChange := ObjBindMethod(this.AutoReload, "Run")
+			this.HTMLPane.Listener := OnEditChange
+			this.CSSPane.Listener  := OnEditChange
+			this.JSPane.Listener   := OnEditChange
 
 		this.SetHotkeys()
-
-		base.Show("Hide")
+		this.View.LoadDocument()
+		this.Show("Hide Center w" . width . " h" . height)
 		this.HTMLPane.SetFocus()
-		this.StatusBar.SetText(" F1=Help, F5=Run, Ctrl+``=Toggle console")
-		this.StatusBar.SetText(Format(" Mode: IE{1:i}`tWidth: {2}, Height: {3}", this.Form.WebView.Document.documentMode, wd, ht), 2)
-	}
-
-	Show(options:="", title:="")
-	{
-		this.Form.Show()
-		this.Canvas.Show()
-		base.Show(options, title)
 	}
 
 	OnEscape()
@@ -178,45 +109,41 @@ class MainWindow extends GuiWnd
 	OnClose()
 	{
 		this.SetHotkeys(0)
+		this.Commands := ""
 		this.DefaultBtn.Listener := ""
-		this.Form := ""
-		this.Canvas := ""
+		this.HTMLPane.Listener := ""
+		this.CSSPane.Listener := ""
+		this.JSPane.Listener := ""
 		this.Destroy()
 	}
 
 	OnSize(EventInfo, w, h)
 	{
-		static sbpos_H := 0
-		if !sbpos_H
-			sbpos_H := this.StatusBar.Pos["H"]
-
 		DllCall("SetWindowPos"
-		      , "Ptr",  this.Canvas.Handle ; hCanvas
+		      , "Ptr",  this.View.Handle
 		      , "Ptr",  0
 		      , "Int",  x := ((w-15)*0.35)+10
 		      , "Int",  0
 		      , "Int",  (w-10)*0.65
-		      , "Int",  h-sbpos_H-(this.JsConsole.IsVisible ? this.JsConsole.Height : 0)
+		      , "Int",  h-(this.Console.IsVisible ? this.Console.Height : 0)
 		      , "UInt", 0)
 
 		static ConsoleOutputHeight := 0
 		if !ConsoleOutputHeight
-			ConsoleOutputHeight := this.JsConsole.Output.Pos["H"]
+			ConsoleOutputHeight := this.Console.Output.Pos["H"]
 
-		Move := this.JsConsole.IsVisible ? "MoveDraw" : "Move"
-		y := h-(sbpos_H + this.JsConsole.Height)+5, wd := (w-15)*0.65
-		(this.JsConsole.Output)[Move](x, y, wd)
+		Move := this.Console.IsVisible ? "MoveDraw" : "Move"
+		y := h-this.Console.Height+5, wd := (w-15)*0.65
+		(this.Console.Output)[Move](x, y, wd)
 		y += ConsoleOutputHeight + 5
-		(this.JsConsole.Input)[Move](x, y, wd)
+		(this.Console.Input)[Move](x, y, wd)
 
-		w := (w-15)*0.35, h := (h-sbpos_H-20)//3
+		w := (w-15)*0.35, h := (h-20)//3
 		this.HTMLPane.Move(,, w, h)
 		y := h + 10
 		this.CSSPane.Move(, y, w, h)
 		y += h + 5
 		this.JSPane.Move(, y, w, h)
-
-		this.StatusBar.SetParts(w + 10) ; update StatusBar part(s) width
 	}
 
 	SetHotkeys(enable:=true)
@@ -226,12 +153,12 @@ class MainWindow extends GuiWnd
 
 			if enable
 			{
-				Help          := ObjBindMethod(this, "Help")
-				LoadDocument  := ObjBindMethod(this.Form, "LoadDocument")
-				FocusHTMLPane := ObjBindMethod(this.HTMLPane, "SetFocus")
-				FocusCSSPane  := ObjBindMethod(this.CSSPane, "SetFocus")
-				FocusJSPane   := ObjBindMethod(this.JSPane, "SetFocus")
-				ToggleConsole := ObjBindMethod(this, "ToggleConsole")
+				ToggleConsole := this.Commands.toggle_console
+				FocusHTMLPane := this.Commands.focus_htmlpane
+				FocusCSSPane  := this.Commands.focus_csspane
+				FocusJSPane   := this.Commands.focus_jspane
+				LoadDocument  := this.Commands.load_document
+				Help          := this.Commands.help
 
 				Hotkey, F1,  %Help%
 				Hotkey, F5,  %LoadDocument%
@@ -253,118 +180,19 @@ class MainWindow extends GuiWnd
 		Hotkey, IfWinActive
 	}
 
-	ToggleConsole()
+	class WebView extends WebBrowserCtl
 	{
-		console := this.JsConsole
-		show := console.IsVisible := !console.IsVisible
-
-		; console is visible but doesn't have keyboard focus
-		; do not toggle show/hide but instead set focus to its input field
-		if !show
-		&& (this.FocusedCtl != console.Input.Handle)
-		&& (this.FocusedCtl != console.Output.Handle)
-			return (console.IsVisible := true) && console.Input.SetFocus()
-
-		console.Output.Hide(!show)
-		console.Input.Hide(!show)
-
-		hCanvas := this.Canvas.Handle
-		WinGetPos,,, w, h, ahk_id %hCanvas%
-		h += show ? -console.Height : console.Height
-		DllCall("SetWindowPos"
-		      , "Ptr",  hCanvas
-		      , "Ptr",  0
-		      , "Int",  0
-		      , "Int",  0
-		      , "Int",  w
-		      , "Int",  h
-		      , "UInt", 0x0002)
-
-		static PrevFocusedCtl := 0
-		if show
+		__New(self, args*)
 		{
-			for i, ctl in [this.HTMLPane, this.CSSPane, this.JSPane]
-				if ( PrevFocusedCtl := this.FocusedCtl==ctl.Handle ? &ctl : 0 )
-					break
-			console.Input.SetFocus()
-		}
-		else if PrevFocusedCtl && ( NumGet(PrevFocusedCtl+0) == NumGet(&(obj := {})) )
-			Object(PrevFocusedCtl).SetFocus(), PrevFocusedCtl := 0
-	}
-
-	ConsoleSubmit(args*)
-	{
-		if (this.FocusedCtl == this.JsConsole.Input.Handle)
-		{
-			input := this.JsConsole.Input.Value
-			window := this.Form.WebView.Window
-			try result := window.eval(input)
-			if IsObject(result)
-				window.console.log(result)
-			else
-				this.ConsoleWrite( Format(">>> {1}`n{2}", input, result) )
-
-			this.JsConsole.Input.Value := "" ; clear input
-		}
-	}
-
-	ConsoleWrite(text)
-	{
-		text := RegExReplace(text, "\R", "`r`n")
-		hOutput := this.JsConsole.Output.Handle
-		SendMessage 0x000E, 0, 0,, ahk_id %hOutput% ; WM_GETTEXTLENGTH
-		if (ErrorLevel)
-			text := "`r`n" . text
-		SendMessage 0x00B1, %ErrorLevel%, %ErrorLevel%,, ahk_id %hOutput% ; EM_SETSEL
-		pText := &text
-		SendMessage 0x00C2, 0, %pText%,, ahk_id %hOutput% ; EM_REPLACESEL
-	}
-
-	class HtmlForm extends GuiChildWnd
-	{
-		__New(self, title:="", w:=600, h:=400)
-		{
-			base.__New(self.Canvas.Handle, title, "+Resize")
-				this.SetFont("s10", "Lucida Console")
-				this.SetFont(, "Consolas")
-				this.Margin["XY"] := 0
-			
-			pos := Format("x0 y0 w{1} h{2}", w, h)
-			this.WebView := new WebBrowserCtl(this.Handle, pos)
-
-			this.__MainWnd := &self
+			base.__New(self.Handle, args*)
+			this.__Wnd := &self
 		}
 
-		MainWnd {
+		Window {
 			get {
-				if ( NumGet(this.__MainWnd) == NumGet(&(o := {})) )
-					return Object(this.__MainWnd)
+				if ( NumGet(this.__Wnd) == NumGet(&(obj := {})) )
+					return Object(this.__Wnd)
 			}
-		}
-
-		OnClose()
-		{
-			MainWnd := this.MainWnd
-				MainWnd.HTMLPane.Value := "<!-- HTML Pane -->"
-				MainWnd.CSSPane.Value := "/* CSS Pane */"
-				MainWnd.JSPane.Value := "// JavaScript Pane"
-			this.LoadDocument() ; reset
-			return true ; prevent window from closing
-		}
-
-		OnSize(EventInfo, w, h)
-		{
-			DllCall("SetWindowPos"
-			      , "Ptr",  this.WebView.Handle
-			      , "Ptr",  0
-			      , "Int",  0
-			      , "Int",  0
-			      , "Int",  w
-			      , "Int",  h
-			      , "UInt", 0x0002) ; SWP_NOMOVE
-
-			if (MainWnd := this.MainWnd)
-				MainWnd.StatusBar.SetText(Format(" Mode: IE{1:i}`tWidth: {2}, Height: {3}", this.WebView.Document.documentMode, w, h), 2)
 		}
 
 		LoadDocument()
@@ -398,17 +226,156 @@ class MainWindow extends GuiWnd
 			</html>
 			)"
 			
-			main := this.MainWnd
+			main := this.Window
+
+			; kill timer if this method was invoked by a menu item, hotkey, or gui event
+			if (A_ThisMenu || A_ThisHotkey || A_Gui)
+				main.AutoReload.Kill()
 			
 			body   := main.HTMLPane.Value
 			style  := main.CSSPane.Value
 			script := main.JSPane.Value
 
-			document := this.WebView.Document
+			FocusedCtl := main.FocusedCtl
+
+			document := this.Document
 			document.open()
 			document.write(Format(html, style, body, script))
-			document.parentWindow.console.write := ObjBindMethod(main, "ConsoleWrite")
+			document.parentWindow.console.write := ObjBindMethod(main.Console, "Write")
 			document.close()
+
+			; loading the document steals keyboard focus, return focus to previously focused control
+			hMain := main.Handle
+			GuiControl, %hMain%:Focus, %FocusedCtl%
+		}
+	}
+
+	class JsConsole
+	{
+		__New(self, output, input)
+		{
+			this.Output := output
+			this.Input := input
+			this.Height := 15 + output.Pos["H"] + input.Pos["H"]
+
+			this.__IsVisible := false
+			this.__Wnd := &self
+		}
+
+		Window {
+			get {
+				if ( NumGet(this.__Wnd) == NumGet(&(obj := {})) )
+					return Object(this.__Wnd)
+			}
+		}
+
+		Submit(args*)
+		{
+			if (this.Window.FocusedCtl == this.Input.Handle)
+			{
+				input := this.Input.Value
+				window := this.Window.View.Document.parentWindow
+				try result := window.eval("(function () { return " . input . "; })()")
+				if IsObject(result)
+					window.console.log(result)
+				else
+					this.Write( Format(">>> {1}`n{2}", input, result) )
+
+				this.Input.Value := "" ; clear input
+			}
+		}
+
+		Write(text)
+		{
+			text := RegExReplace(text, "\R", "`r`n")
+			hOutput := this.Output.Handle
+			SendMessage 0x000E, 0, 0,, ahk_id %hOutput% ; WM_GETTEXTLENGTH
+			if (ErrorLevel)
+				text := "`r`n" . text
+			SendMessage 0x00B1, %ErrorLevel%, %ErrorLevel%,, ahk_id %hOutput% ; EM_SETSEL
+			pText := &text
+			SendMessage 0x00C2, 0, %pText%,, ahk_id %hOutput% ; EM_REPLACESEL
+		}
+
+		IsVisible {
+			get {
+				return this.__IsVisible
+			}
+			set {
+				if (value && !this.IsVisible) || (!value && this.IsVisible)
+				{
+					pos := this.Window.ClientPos
+						x := ((pos.W-15)*0.35)+10
+						w := (pos.W-10)*0.65
+						h := pos.H
+
+					if value {
+						this.Output.Move(x, h-this.Height+5, w)
+						this.Input.Move(x, h-5-this.Input.Pos["H"], w)
+						h -= this.Height
+					}
+					this.Output.Hide(!value)
+					this.Input.Hide(!value)
+
+					DllCall("SetWindowPos", "Ptr", this.Window.View.Handle, "Ptr", 0, "Int", x, "Int", 0, "Int", w, "Int", h, "UInt", 0)
+				}
+				return this.__IsVisible := value
+			}
+		}
+		
+		ToggleShowHide()
+		{
+			; console is visible but doesn't have keyboard focus
+			; do not toggle show/hide but instead set focus to its input field
+			if this.IsVisible
+			&& (this.Window.FocusedCtl != this.Input.Handle)
+			&& (this.Window.FocusedCtl != this.Output.Handle)
+				return this.Input.SetFocus()
+
+			this.IsVisible := !this.IsVisible
+
+			static PrevFocusedCtl := 0
+			if this.IsVisible
+			{
+				for i, ctl in [this.Window.HTMLPane, this.Window.CSSPane, this.Window.JSPane]
+					if ( PrevFocusedCtl := this.Window.FocusedCtl==ctl.Handle ? &ctl : 0 )
+						break
+				this.Input.SetFocus()
+			}
+			else if PrevFocusedCtl && ( NumGet(PrevFocusedCtl+0) == NumGet(&(obj := {})) )
+				Object(PrevFocusedCtl).SetFocus(), PrevFocusedCtl := 0
+		}
+	}
+
+	class Timer extends CFunction
+	{
+		__New(period, FuncObj)
+		{
+			this.Period := period
+			this.Target := FuncObj
+		}
+
+		__Delete()
+		{
+			this.Target := ""
+			this.Kill()
+		}
+
+		Call(args*)
+		{
+			this.Target.Call()
+			this.Kill()
+		}
+
+		Run()
+		{
+			period := this.Period
+			SetTimer, %this%, %period%
+		}
+
+		Kill()
+		{
+			SetTimer, %this%, Delete
 		}
 	}
 
@@ -425,6 +392,16 @@ class MainWindow extends GuiWnd
 		Ctrl + 2`tFocus CSS Pane
 		Ctrl + 3`tFocus JavaScript Pane
 		)"
+	}
+}
+
+; Base class for custom "Function" objects
+class CFunction
+{
+	__Call(method, args*)
+	{
+		if IsObject(method) || (method == "")
+			return method ? this.Call(method, args*) : this.Call(args*)
 	}
 }
 
@@ -450,7 +427,24 @@ class WebBrowserCtl extends GActiveXCtl
 	}
 }
 
+class RebarCtl extends GCustomCtl
+{
+	static Class := "ReBarWindow32"
+}
 
+
+class GCustomCtl extends GuiCtl
+{
+	static Type := "Custom"
+	static Class := ""
+
+	__New(gui, args*)
+	{
+		class := this.Class ? this.Class : ObjRemoveAt(args, 1)
+		options := Format("{1} Class{2}", args[1], class)
+		base.__New(gui, options, args*)
+	}
+}
 
 class GActiveXCtl extends GuiCtl
 {
@@ -510,7 +504,7 @@ class GuiCtl
 		CtlType := this.Type ? this.Type : ObjRemoveAt(args, 1)
 		options := args[1], text := args[2]
 		Gui, %gui%:Add, %CtlType%, %options% HwndhCtl, %text%
-		this.__Handle := hCtl
+		this.__Handle := hCtl + 0
 		this.__Gui := gui
 	}
 
@@ -545,11 +539,11 @@ class GuiCtl
 		}
 	}
 
-	Pos[which:=""] {
+	Pos[arg:=""] {
 		get {
 			gui := this.Gui, hCtl := this.Handle
 			GuiControlGet, pos, %gui%:Pos, %hCtl%
-			return which ? pos%which% : { X:posX, Y:posY, W:posW, H:posH }
+			return arg ? pos%arg% : { X:posX, Y:posY, W:posW, H:posH }
 		}
 	}
 
@@ -715,11 +709,11 @@ class GuiWnd
 		}
 	}
 
-	Margin[which:="XY"] {
+	Margin[arg:="XY"] {
 		set {
 			h := this.Handle
-			X := Trim(which, " `tY")="X" ? value : ""
-			Y := Trim(which, " `tX")="Y" ? value : ""
+			X := Trim(arg, " `tY")="X" ? value : ""
+			Y := Trim(arg, " `tX")="Y" ? value : ""
 			Gui, %h%:Margin, %X%, %Y%
 			return value
 		}
@@ -786,7 +780,7 @@ class GuiWnd
 		prev_DHW := A_DetectHiddenWindows
 		DetectHiddenWindows, On
 			
-			static PID := DllCall("GetCurrentProcessID")
+			static PID := DllCall("GetCurrentProcessId")
 			if !WinExist("ahk_class AutoHotkeyGUI ahk_pid " . PID)
 				SetTimer, gwnd_exit, -1
 		
@@ -811,6 +805,25 @@ class GuiWnd
 		; Subclassing
 		else
 			return this[event](args*)
+	}
+
+	Pos[arg:="", client:=false] {
+		get {
+			static RECT
+			if !VarSetCapacity(RECT)
+				VarSetCapacity(RECT, 16, 0)
+			DllCall(client ? "GetClientRect" : "GetWindowRect", "Ptr", this.Handle, "Ptr", &RECT)
+				w := NumGet(RECT,  8, "Int") - x := NumGet(RECT,  0, "Int")
+				h := NumGet(RECT, 12, "Int") - y := NumGet(RECT,  4, "Int")
+
+			return ((StrLen(arg:=Trim(arg, " `t`r`n"))==1) && InStr("XYWH", arg)) ? %arg% : { X:x, Y:y, W:w, H:h }
+		}
+	}
+
+	ClientPos[arg:=""] {
+		get {
+			return this.Pos[arg, true]
+		}
 	}
 }
 
