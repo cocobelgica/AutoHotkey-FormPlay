@@ -2,6 +2,8 @@
 
 Simple desktop HTML\CSS\JS code playground written in [AutoHoktey](http://ahkscript.org)
 
+License: [WTFPL](http://wtfpl.net/)
+
 - - -
 
 ### Installation:
